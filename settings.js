@@ -1,16 +1,23 @@
 import {TARGETS,normalize,targetIndex} from './engine.js';
 export const defaultRules=()=>TARGETS.map(name=>({name,delta:5,highlight:true,scope:'band'}));
+const stationName=s=>normalize(s.normalize('NFKC')).replace(/[“”‘’"'·、;；|]/g,'');
 export function matchRule(text,rules){
- const n=normalize(text),known=targetIndex(text);
- const ids=rules.flatMap((r,i)=>normalize(r.name)===n||(TARGETS.indexOf(r.name)>=0&&TARGETS.indexOf(r.name)===known)?[i]:[]);
+ const n=stationName(text),known=targetIndex(text);
+ const ids=rules.flatMap((r,i)=>stationName(r.name)===n||(TARGETS.indexOf(r.name)>=0&&TARGETS.indexOf(r.name)===known)?[i]:[]);
  if(ids.length>1)throw Error('同一个站匹配到多条设置，请删除重复站名。');
  return ids[0]??-1;
+}
+export function stationRule(s,rules){
+ if(s.confirmedName)return rules.findIndex(r=>stationName(r.name)===stationName(s.confirmedName));
+ const ids=new Set([s.text,...(s.ocrAlternatives||[])].map(text=>matchRule(text,rules)).filter(i=>i>=0));
+ if(ids.size>1)throw Error('同一个站出现不同的识别结果，请使用清晰原图或检查重复设置。');
+ return [...ids][0]??-1;
 }
 export function applyRules(bands,rules){
  const names=new Set();for(const r of rules){const n=normalize(r.name);if(!n||names.has(n))throw Error('站名不能为空或重复。');names.add(n);if(!Number.isInteger(r.delta)||r.delta%5||!['band','station'].includes(r.scope))throw Error('调价设置无效。');}
  const counts=rules.map(()=>0),updates=[],pieces=[];
  for(const b of bands){
-  const matched=b.stations.map(s=>({...s,rule:matchRule(s.text,rules)}));
+  const matched=b.stations.map(s=>({...s,rule:stationRule(s,rules)}));
   for(const s of matched)if(s.rule>=0)counts[s.rule]++;
   const bandRules=matched.filter(s=>s.rule>=0&&rules[s.rule].scope==='band').map(s=>rules[s.rule]);
   const deltas=new Set(bandRules.map(r=>r.delta));

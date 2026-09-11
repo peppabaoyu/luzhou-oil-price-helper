@@ -1,8 +1,9 @@
-import {defaultRules,applyRules} from './settings.js';
+import {defaultRules,applyRules,stationRule} from './settings.js';
+import {recoverStations,missingRules} from './station-recovery.js';
 import {TARGETS,adjustBands,detectBands,inkRows,cellsForBand,priceFromText,targetIndex,normalize} from './engine.js';
 import {ensureExportFont,EXPORT_FONT} from './export-font.js';
 import {inkCoverage} from './raster.js';
-export async function processImage(source,worker,canvasFactory,progress=()=>{},rules=defaultRules()){
+export async function processImage(source,worker,canvasFactory,progress=()=>{},rules=defaultRules(),resolveMissing){
  const make=(w,h)=>canvasFactory(Math.ceil(w),Math.ceil(h)); const input=make(source.width,source.height);input.getContext('2d').drawImage(source,0,0);const image=input.getContext('2d').getImageData(0,0,input.width,input.height);const w=input.width;
  if(w<700||input.height/w<1.1)throw Error('请上传完整、清晰的竖版表格原图（宽度至少700像素）。');
  const regions=detectBands(image);if(regions.length<4)throw Error('未识别到彩色价格栏。当前版本适用于示例中的三列彩色表格。');
@@ -17,6 +18,17 @@ export async function processImage(source,worker,canvasFactory,progress=()=>{},r
  progress(45,'正在识别需要修改的站点…');await worker.setParameters({tessedit_pageseg_mode:'6'});const stationData=await read(sheet,true);const texts=stations.map(()=>[]);for(const block of stationData.blocks||[])for(const para of block.paragraphs||[])for(const line of para.lines||[]){const i=Math.floor(((line.bbox.y0+line.bbox.y1)/2-10)/72);if(i>=0&&i<stations.length)texts[i].push(line.text);}
  stations.forEach((s,i)=>{s.text=texts[i].join('');s.target=targetIndex(s.text);});
  for(const s of stations.filter(s=>s.target<0&&normalize(s.text).includes('龙马'))){const c=crop(s.box,true),large=make(c.width*2,c.height*2);large.getContext('2d').drawImage(c,0,0,large.width,large.height);await worker.setParameters({tessedit_pageseg_mode:'7'});const retry=await read(large);s.target=targetIndex(retry.text);if(s.target>=0)s.text=TARGETS[s.target];}
+ await recoverStations(stations,rules,async(s,mode)=>{
+  const b=s.box,pad=3,x=Math.max(0,b.x-pad),y=Math.max(0,b.y-pad),cw=Math.min(w-x,b.w+2*pad),ch=Math.min(input.height-y,b.h+2*pad),c=make(cw,ch),cx=c.getContext('2d');cx.drawImage(input,x,y,cw,ch,0,0,cw,ch);const data=cx.getImageData(0,0,cw,ch);
+  for(let i=0;i<data.data.length;i+=4){const coverage=inkCoverage(data.data[i],data.data[i+1],data.data[i+2],s.background)/255;const value=mode?(coverage>.36?0:255):Math.round(255*(1-coverage));data.data[i]=data.data[i+1]=data.data[i+2]=value;data.data[i+3]=255;}cx.putImageData(data,0,0);
+  const scale=Math.max(2,Math.min(4,80/ch)),large=make(cw*scale+40,ch*scale+40),lc=large.getContext('2d');lc.fillStyle='white';lc.fillRect(0,0,large.width,large.height);lc.drawImage(c,20,20,cw*scale,ch*scale);await worker.setParameters({tessedit_pageseg_mode:mode?'13':'7'});return (await read(large)).text;
+ },progress);
+ const unresolved=missingRules(stations,rules);
+ if(unresolved.length&&resolveMissing){
+  const choices=stations.map((s,index)=>({index,text:s.text,image:crop(s.box).toDataURL('image/png'),price:bands.find(b=>b.stations.includes(s)).price}));
+  const assignments=await resolveMissing(unresolved,choices,rules,stations);
+  const used=new Set(),usedRules=new Set();for(const a of assignments){if(!unresolved.some(r=>r.index===a.rule)||!Number.isInteger(a.station)||!stations[a.station]||used.has(a.station)||usedRules.has(a.rule)||stationRule(stations[a.station],rules)>=0)throw Error('站点选择无效，请重新处理。');used.add(a.station);usedRules.add(a.rule);stations[a.station].confirmedName=rules[a.rule].name;}
+ }
  const result=applyRules(bands,rules);
  progress(78,'正在核对底部说明…');const footerRegion=regions.at(-1);const footerRows=inkRows(image,footerRegion);const footerRow=footerRows.at(-1);if(!footerRow||footerRow.y<tailStart)throw Error('未能识别底部说明。');await worker.setParameters({tessedit_pageseg_mode:'7'});const footerData=await read(crop({x:0,y:footerRow.y-2,w,h:footerRow.end-footerRow.y+4},true));const footerText=normalize(footerData.text);const threshold=footerData.text.replace(/\s/g,'').match(/挂牌价[格]?([0-9]+(?:\.[0-9]+)?)以上/);if(!threshold||!footerText.includes('优惠5角5'))throw Error('底部说明不是“挂牌价优惠5角5”，或文字不清楚。为避免改错，已停止出图。');
  progress(90,'正在重新排版…');const ratio=w/1564;const margin=18*ratio,rowHeight=64*ratio,font=38*ratio,focusFont=46*ratio,priceHeight=54*ratio;let y=bands[0].y;const layout=result.groups.map(b=>{const first=b.stations[0];const longFirst=first?.highlight&&(first.target===0||(rules[first.rule]?.name.length||0)>12);const cells=b.stations.map((s,i)=>{const row=Math.floor(i/3),col=i%3;const widths=row===0&&longFirst?[.44,.28,.28]:[1/3,1/3,1/3];return {station:s,row,left:widths.slice(0,col).reduce((a,v)=>a+v,0),width:widths[col]};});const inlinePrice=cells.length===1&&!longFirst;const height=Math.ceil(cells.length/3)*rowHeight+(inlinePrice?0:priceHeight)+margin;return {...b,cells,inlinePrice,y:(y+=height)-height,height};});const tailHeight=input.height-tailStart;const exportScale=Math.max(1,Math.min(2,2560/w));const out=make(w*exportScale,(y+tailHeight)*exportScale);const ctx=out.getContext('2d');ctx.scale(exportScale,exportScale);ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.fillStyle='white';ctx.fillRect(0,0,w,y+tailHeight);ctx.drawImage(input,0,0,w,bands[0].y,0,0,w,bands[0].y);
