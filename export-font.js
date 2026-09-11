@@ -1,4 +1,18 @@
 export const EXPORT_FONT='OilExportBold';
+export const CUSTOM_FONT='OilChinese';
+const customReady=new Map();
+export async function ensureCustomFont(weights=[700]){
+ if(typeof document==='undefined')return;
+ await Promise.all([...new Set(weights)].map(weight=>{
+ if(!customReady.has(weight))customReady.set(weight,(async()=>{let timer;try{
+  const face=new FontFace(CUSTOM_FONT,`url("${new URL(`./fonts/oil-chinese-${weight}.ttf`,import.meta.url).href}")`,{weight:String(weight),style:'normal'});
+  await Promise.race([face.load(),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('timeout')),60000);})]);
+  document.fonts.add(face);await document.fonts.load(`${weight} 46px "${CUSTOM_FONT}"`,'中江黄鹿温江天府');
+  if(face.status!=='loaded')throw Error('font not loaded');
+ }catch(e){customReady.delete(weight);throw Error('完整中文字库未加载成功，请检查网络后重试。首次使用临时站需要加载字库。');}finally{clearTimeout(timer);}})());
+ return customReady.get(weight);
+ }));
+}
 let ready;
 export async function ensureExportFont(){
   if(typeof document==='undefined')return;
