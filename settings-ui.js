@@ -12,6 +12,8 @@ function addRow(rule={name:'',delta:5,highlight:true,scope:'station'}){
  label('调价范围',select('station-scope',[['station','只改本站'],['band','整个价格栏']],rule.scope));
  rows().append(card);
 }
-export function initSettings(){const reset=()=>{rows().replaceChildren();defaultRules().forEach(addRow);for(let i=0;i<3;i++)addRow();};reset();document.getElementById('addRule').onclick=()=>addRow();document.getElementById('resetRules').onclick=reset;}
+export function initSettings(){const reset=()=>{document.getElementById('footerMode').value='replace';document.getElementById('footerText').value='';rows().replaceChildren();defaultRules().forEach(addRow);for(let i=0;i<3;i++)addRow();};reset();document.getElementById('addRule').onclick=()=>addRow();document.getElementById('resetRules').onclick=reset;}
 export function setSettingsBusy(busy){document.getElementById('settingFields').disabled=busy;}
 export function readSettings(){return [...rows().children].flatMap(card=>{const name=card.querySelector('.station-name').value.trim();if(!name)return [];const input=card.querySelector('.station-delta'),raw=Number(input.value),delta=Math.round(raw*100);if(input.value===''||!Number.isFinite(raw)||Math.abs(raw*100-delta)>1e-6||delta%5)throw Error('调价金额请按0.05元递增或递减，例如0、0.05、-0.10。');return [{name,delta,highlight:card.querySelector('.station-highlight').value==='yes',scope:card.querySelector('.station-scope').value}];});}
+
+export function readFooterSettings(){return {mode:document.getElementById('footerMode').value,text:document.getElementById('footerText').value.trim()};}
