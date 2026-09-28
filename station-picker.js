@@ -1,4 +1,4 @@
-import {stationRule} from './settings.js';
+import {stationRule} from './settings.js?v=20260929';
 export function pickMissingStations(missing,choices,rules,stations){
  return new Promise((resolve,reject)=>{
   const panel=document.createElement('section');panel.className='station-picker panel';panel.setAttribute('aria-label','核对未识别站名');

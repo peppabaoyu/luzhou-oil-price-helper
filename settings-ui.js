@@ -1,4 +1,4 @@
-import {defaultRules} from './settings.js';
+import {defaultRules} from './settings.js?v=20260929';
 const rows=()=>document.getElementById('ruleRows');
 function addRow(rule={name:'',delta:5,highlight:true,scope:'station'}){
  const card=document.createElement('div');card.className='station-rule';
@@ -12,8 +12,18 @@ function addRow(rule={name:'',delta:5,highlight:true,scope:'station'}){
  label('调价范围',select('station-scope',[['station','只改本站'],['band','整个价格栏']],rule.scope));
  rows().append(card);
 }
-export function initSettings(){const reset=()=>{document.getElementById('footerMode').value='replace';document.getElementById('footerText').value='';rows().replaceChildren();defaultRules().forEach(addRow);for(let i=0;i<3;i++)addRow();};reset();document.getElementById('addRule').onclick=()=>addRow();document.getElementById('resetRules').onclick=reset;}
+export function initSettings(){const reset=()=>{document.getElementById('newStationRows').replaceChildren();addNewStationRow();document.getElementById('footerMode').value='replace';document.getElementById('footerText').value='';rows().replaceChildren();defaultRules().forEach(addRow);for(let i=0;i<3;i++)addRow();};reset();document.getElementById('addNewStation').onclick=()=>addNewStationRow();document.getElementById('addRule').onclick=()=>addRow();document.getElementById('resetRules').onclick=reset;}
 export function setSettingsBusy(busy){document.getElementById('settingFields').disabled=busy;}
 export function readSettings(){return [...rows().children].flatMap(card=>{const name=card.querySelector('.station-name').value.trim();if(!name)return [];const input=card.querySelector('.station-delta'),raw=Number(input.value),delta=Math.round(raw*100);if(input.value===''||!Number.isFinite(raw)||Math.abs(raw*100-delta)>1e-6||delta%5)throw Error('调价金额请按0.05元递增或递减，例如0、0.05、-0.10。');return [{name,delta,highlight:card.querySelector('.station-highlight').value==='yes',scope:card.querySelector('.station-scope').value}];});}
 
 export function readFooterSettings(){return {mode:document.getElementById('footerMode').value,text:document.getElementById('footerText').value.trim()};}
+
+function addNewStationRow(){
+ const card=document.createElement('div');card.className='station-rule';
+ const label=(text,input)=>{const l=document.createElement('label');l.textContent=text;l.append(input);card.append(l);};
+ const name=document.createElement('input');name.className='new-name';name.placeholder='填写要新增的加油站名称';label('新站名称',name);
+ const price=document.createElement('input');price.className='new-price';price.type='number';price.inputMode='decimal';price.step='0.01';price.placeholder='例如 6.57';label('最终结算价（元/升）',price);
+ const highlight=document.createElement('select');highlight.className='new-highlight';highlight.add(new Option('是，标红加粗、放大并前置','yes'));highlight.add(new Option('否，普通显示','no'));label('突出显示',highlight);
+ const remove=document.createElement('button');remove.type='button';remove.className='secondary';remove.textContent='删除这条新增站';remove.onclick=()=>card.remove();card.append(remove);document.getElementById('newStationRows').append(card);
+}
+export function readAdditions(){return [...document.getElementById('newStationRows').children].flatMap(card=>{const name=card.querySelector('.new-name').value.trim(),input=card.querySelector('.new-price'),raw=Number(input.value),price=Math.round(raw*100);if(!name&&!input.value)return [];if(!name||!input.value||!Number.isFinite(raw)||price<=0||Math.abs(raw*100-price)>1e-6)throw Error('新增站请填写站名和有效结算价（最多两位小数）。');return [{name,price,highlight:card.querySelector('.new-highlight').value==='yes'}];});}

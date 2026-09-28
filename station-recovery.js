@@ -1,5 +1,5 @@
-import {normalize} from './engine.js';
-import {stationRule} from './settings.js';
+import {normalize} from './engine.js?v=20260929';
+import {stationRule} from './settings.js?v=20260929';
 export function missingRules(stations,rules){const found=new Set(stations.map(s=>stationRule(s,rules)));return rules.map((r,i)=>({...r,index:i})).filter(r=>!found.has(r.index));}
 function distance(a,b){let row=Array.from({length:b.length+1},(_,i)=>i);for(let i=0;i<a.length;i++){const next=[i+1];for(let j=0;j<b.length;j++)next.push(Math.min(next[j]+1,row[j+1]+1,row[j]+(a[i]===b[j]?0:1)));row=next;}return row[b.length];}
 export async function recoverStations(stations,rules,readSingle,progress=()=>{}){

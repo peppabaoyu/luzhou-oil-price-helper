@@ -1,4 +1,4 @@
-import {TARGETS,normalize,targetIndex} from './engine.js';
+import {TARGETS,normalize,targetIndex} from './engine.js?v=20260929';
 export const defaultRules=()=>TARGETS.map(name=>({name,delta:5,highlight:true,scope:'band'}));
 const stationName=s=>normalize(s.normalize('NFKC')).replace(/[“”‘’"'·、;；|]/g,'');
 export function matchRule(text,rules){
