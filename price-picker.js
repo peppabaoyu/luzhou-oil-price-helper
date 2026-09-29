@@ -1,4 +1,4 @@
-import {validPrice} from './price-reader.js?v=20260929';
+import {validPrice} from './price-reader.js?v=20260929-gap';
 export function confirmPrice({image,suggestion,allowTail=false,anchor=null,index}){
  return new Promise((resolve,reject)=>{
   const panel=document.createElement('section');panel.className='panel station-picker station-rule';

@@ -1,4 +1,4 @@
-import {priceFromText} from './engine.js?v=20260929';
+import {priceFromText} from './engine.js?v=20260929-gap';
 export const validPrice=p=>p&&Number.isInteger(p.price)&&Number.isInteger(p.discount)&&p.price>0&&p.price<=2000&&p.discount>=0&&p.discount<=1000;
 // Retry only uncertain rows. A disagreeing result is left for confirmation.
 export async function readPriceVariants(recognize){

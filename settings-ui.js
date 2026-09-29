@@ -1,4 +1,4 @@
-import {defaultRules} from './settings.js?v=20260929';
+import {defaultRules} from './settings.js?v=20260929-gap';
 const rows=()=>document.getElementById('ruleRows');
 function addRow(rule={name:'',delta:5,highlight:true,scope:'station'}){
  const card=document.createElement('div');card.className='station-rule';

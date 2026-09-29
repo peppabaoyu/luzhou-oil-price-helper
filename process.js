@@ -1,15 +1,17 @@
-import {addStations} from './additions.js?v=20260929';
-import {readPriceVariants,validPrice} from './price-reader.js?v=20260929';
-import {separateBandColors} from './band-colors.js?v=20260929';
-import {defaultRules,applyRules,stationRule} from './settings.js?v=20260929';
-import {recoverStations,missingRules} from './station-recovery.js?v=20260929';
-import {TARGETS,adjustBands,detectBands,inkRows,cellsForBand,priceFromText,targetIndex,normalize} from './engine.js?v=20260929';
-import {ensureExportFont,EXPORT_FONT,ensureCustomFont,CUSTOM_FONT} from './export-font.js?v=20260929';
-import {inkCoverage} from './raster.js?v=20260929';
+import {compactBlankSpace} from './blank-space.js?v=20260929-gap';
+import {discountBox,locateDiscountPixels} from './footer-discount.js?v=20260929-gap';
+import {addStations} from './additions.js?v=20260929-gap';
+import {readPriceVariants,validPrice} from './price-reader.js?v=20260929-gap';
+import {separateBandColors} from './band-colors.js?v=20260929-gap';
+import {defaultRules,applyRules,stationRule} from './settings.js?v=20260929-gap';
+import {recoverStations,missingRules} from './station-recovery.js?v=20260929-gap';
+import {TARGETS,adjustBands,detectBands,inkRows,cellsForBand,priceFromText,targetIndex,normalize} from './engine.js?v=20260929-gap';
+import {ensureExportFont,EXPORT_FONT,ensureCustomFont,CUSTOM_FONT} from './export-font.js?v=20260929-gap';
+import {inkCoverage} from './raster.js?v=20260929-gap';
 export async function processImage(source,worker,canvasFactory,progress=()=>{},rules=defaultRules(),resolveMissing,footer={mode:"replace",text:""},additions=[],resolvePrice){
- const make=(w,h)=>canvasFactory(Math.ceil(w),Math.ceil(h)); const scale=Math.min(1564/source.width,Math.sqrt(12000000/(source.width*source.height)));const input=make(source.width*scale,source.height*scale);input.getContext('2d').drawImage(source,0,0,input.width,input.height);const image=input.getContext('2d').getImageData(0,0,input.width,input.height);const w=input.width;
+ const make=(w,h)=>canvasFactory(Math.ceil(w),Math.ceil(h)); const scale=Math.min(1564/source.width,Math.sqrt(12000000/(source.width*source.height)));let input=make(source.width*scale,source.height*scale);input.getContext('2d').drawImage(source,0,0,input.width,input.height);progress(5,'正在整理图片中的大片空白…');const compacted=compactBlankSpace(input,make);input=compacted.canvas;const image=input.getContext('2d').getImageData(0,0,input.width,input.height);const w=input.width;
 
- const regions=detectBands(image);if(regions.length<4)throw Error('未识别到彩色价格栏。当前版本适用于示例中的三列彩色表格。');
+ const regions=detectBands(image);if(regions.length<2)throw Error('未识别到彩色价格栏。当前版本适用于示例中的三列彩色表格。');
  const crop=(box,bw=false)=>{const c=make(box.w+20,box.h+20);const ctx=c.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,c.width,c.height);ctx.drawImage(input,box.x,box.y,box.w,box.h,10,10,box.w,box.h);if(bw){const d=ctx.getImageData(0,0,c.width,c.height);for(let i=0;i<d.data.length;i+=4){let v=Math.max(d.data[i],d.data[i+1],d.data[i+2])<135?0:255;d.data[i]=d.data[i+1]=d.data[i+2]=v;d.data[i+3]=255;}ctx.putImageData(d,0,0);}return c;};
  const read=async(c,blocks=false)=>{const r=await worker.recognize(c.toDataURL('image/png'),{},blocks?{text:true,blocks:true}:{text:true});return r.data;};
  await worker.setParameters({tessedit_pageseg_mode:'7',preserve_interword_spaces:'1'});
@@ -31,11 +33,11 @@ export async function processImage(source,worker,canvasFactory,progress=()=>{},r
   if(!p){
    await worker.setParameters({tessedit_pageseg_mode:'6'});
    const body=await read(crop({x:0,y:region.y,w,h:region.end-region.y}));
-   const isTail=bands.length>=3&&/蜀道|中海油|中航油|蜀交|中港能源/.test(body.text||'');
+   const isTail=bands.length>=1&&/蜀道|中海油|中航油|蜀交|中港能源/.test(body.text||'');
    if(isTail){tailStart=region.y;break;}
-   if(resolvePrice)p=await resolvePrice({index:i,image:crop({x:0,y:region.y,w,h:region.end-region.y}).toDataURL('image/png'),suggestion:priceRead.suggestion,allowTail:bands.length>=3});
+   if(resolvePrice)p=await resolvePrice({index:i,image:crop({x:0,y:region.y,w,h:region.end-region.y}).toDataURL('image/png'),suggestion:priceRead.suggestion,allowTail:bands.length>=1});
    else throw Error('有一栏原价无法确认，请在网页中核对原价后继续。');
-   if(p?.tail&&bands.length>=3){tailStart=region.y;break;}
+   if(p?.tail&&bands.length>=1){tailStart=region.y;break;}
   }
   if(!validPrice(p))throw Error('填写的原价无效，请重新核对。');
   const stations=cellsForBand(image,region,rows);if(!stations.length)throw Error('该颜色栏未能分离出站名，请裁去截图边框后再试。');
@@ -58,30 +60,31 @@ export async function processImage(source,worker,canvasFactory,progress=()=>{},r
   for(let i=0;i<data.data.length;i+=4){const coverage=inkCoverage(data.data[i],data.data[i+1],data.data[i+2],s.background)/255;const value=mode?(coverage>.36?0:255):Math.round(255*(1-coverage));data.data[i]=data.data[i+1]=data.data[i+2]=value;data.data[i+3]=255;}cx.putImageData(data,0,0);
   const scale=Math.max(2,Math.min(4,80/ch)),large=make(cw*scale+40,ch*scale+40),lc=large.getContext('2d');lc.fillStyle='white';lc.fillRect(0,0,large.width,large.height);lc.drawImage(c,20,20,cw*scale,ch*scale);await worker.setParameters({tessedit_pageseg_mode:mode?'13':'7'});return (await read(large)).text;
  },progress);
- const unresolved=missingRules(stations,rules);
+ const unresolved=missingRules(stations,rules).filter(r=>!TARGETS.includes(r.name));
  if(unresolved.length&&resolveMissing){
   const choices=stations.map((s,index)=>({index,text:s.text,image:crop(s.box).toDataURL('image/png'),price:bands.find(b=>b.stations.includes(s)).price}));
   const assignments=await resolveMissing(unresolved,choices,rules,stations);
   const used=new Set(),usedRules=new Set();for(const a of assignments){if(!unresolved.some(r=>r.index===a.rule)||!Number.isInteger(a.station)||!stations[a.station]||used.has(a.station)||usedRules.has(a.rule)||stationRule(stations[a.station],rules)>=0)throw Error('站点选择无效，请重新处理。');used.add(a.station);usedRules.add(a.rule);stations[a.station].confirmedName=rules[a.rule].name;}
  }
  const result=addStations(applyRules(bands,rules),additions,anchor);
- let footerRow=null,footerRegion=regions.at(-1),footerWarning='';
+ let footerRow=null,footerRegion=regions.at(-1),footerWarning='',discountPatch=null;const customFooter=footer.mode!=='keep'&&!!String(footer.text||'').trim();
  if(footer.mode!=='keep'){
   progress(78,'正在定位底部说明…');const candidate=inkRows(image,footerRegion).at(-1);
-  if(candidate&&candidate.y>=tailStart){await worker.setParameters({tessedit_pageseg_mode:'7'});const data=await read(crop({x:0,y:candidate.y-2,w,h:candidate.end-candidate.y+4},true));if(/挂牌|优惠/.test(normalize(data.text)))footerRow=candidate;}
-  if(!footerRow)footerWarning='未能确认原图底部说明的位置，已保留原内容并在最下方添加新说明。';
+  if(candidate&&candidate.y>=tailStart){await worker.setParameters({tessedit_pageseg_mode:'7'});const data=await read(crop({x:0,y:candidate.y-2,w,h:candidate.end-candidate.y+4},true),true);if(/挂牌|优惠/.test(normalize(data.text)))footerRow=candidate;if(!customFooter){const box=discountBox(data);if(box)discountPatch=locateDiscountPixels(image,candidate,box);}}
+  if(!footerRow&&customFooter)footerWarning='未能确认原图底部说明的位置，已保留原内容并在最下方添加新说明。';if(!customFooter&&!discountPatch)footerWarning='未能准确定位底部优惠金额，已保留原说明；可在底部说明区域填写完整内容后重新出图。';
  }
- const footerText=String(footer.text||'').trim()||`挂牌价格${anchor/100}以上的，挂牌价优惠4角5`;
+ const footerText=String(footer.text||'').trim();
  const footerLines=footerText.split(/\r?\n/).flatMap(line=>Array.from(line).join('').match(/.{1,34}/gu)||['']);
- progress(90,'正在重新排版…');const ratio=w/1564;const margin=8*ratio,rowHeight=52*ratio,font=38*ratio,focusFont=46*ratio,priceHeight=44*ratio;let y=bands[0].y;const layout=separateBandColors(result.groups).map(b=>{const first=b.stations[0];const longFirst=first?.highlight&&(first.target===0||(first.renderName?.length||rules[first.rule]?.name.length||0)>12);const cells=b.stations.map((s,i)=>{const row=Math.floor(i/3),col=i%3;const widths=row===0&&longFirst?[.44,.28,.28]:[1/3,1/3,1/3];return {station:s,row,left:widths.slice(0,col).reduce((a,v)=>a+v,0),width:widths[col]};});const inlinePrice=cells.length===1&&!longFirst;const height=Math.ceil(cells.length/3)*rowHeight+(inlinePrice?0:priceHeight)+margin;return {...b,cells,inlinePrice,y:(y+=height)-height,height};});const tailHeight=(footer.mode==='keep'?input.height:footerRow?Math.max(tailStart,footerRow.y-4*ratio):input.height)-tailStart;const footerHeight=footer.mode==='keep'?0:footerLines.length*46*ratio+12*ratio;const exportScale=Math.max(1,Math.min(2,2560/w));const out=make(w*exportScale,(y+tailHeight+footerHeight)*exportScale);const ctx=out.getContext('2d');ctx.scale(exportScale,exportScale);ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.fillStyle='white';ctx.fillRect(0,0,w,y+tailHeight+footerHeight);ctx.drawImage(input,0,0,w,bands[0].y,0,0,w,bands[0].y);
+ progress(90,'正在重新排版…');const ratio=w/1564;const margin=8*ratio,rowHeight=52*ratio,font=38*ratio,focusFont=46*ratio,priceHeight=44*ratio;let y=bands[0].y;const layout=separateBandColors(result.groups).map(b=>{const first=b.stations[0];const longFirst=first?.highlight&&(first.target===0||(first.renderName?.length||rules[first.rule]?.name.length||0)>12);const cells=b.stations.map((s,i)=>{const row=Math.floor(i/3),col=i%3;const widths=row===0&&longFirst?[.44,.28,.28]:[1/3,1/3,1/3];return {station:s,row,left:widths.slice(0,col).reduce((a,v)=>a+v,0),width:widths[col]};});const inlinePrice=cells.length===1&&!longFirst;const height=Math.ceil(cells.length/3)*rowHeight+(inlinePrice?0:priceHeight)+margin;return {...b,cells,inlinePrice,y:(y+=height)-height,height};});const tailHeight=(!customFooter?input.height:footerRow?Math.max(tailStart,footerRow.y-4*ratio):input.height)-tailStart;const footerHeight=!customFooter?0:footerLines.length*46*ratio+12*ratio;const exportScale=Math.max(1,Math.min(2,2560/w));const out=make(w*exportScale,(y+tailHeight+footerHeight)*exportScale);const ctx=out.getContext('2d');ctx.scale(exportScale,exportScale);ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.fillStyle='white';ctx.fillRect(0,0,w,y+tailHeight+footerHeight);ctx.drawImage(input,0,0,w,bands[0].y,0,0,w,bands[0].y);
  await ensureExportFont();if(footer.mode!=="keep"&&String(footer.text||'').trim())await ensureCustomFont([700]);
  const customStations=layout.flatMap(b=>b.stations).filter(s=>(s.added||s.rule>=0&&s.target<0));if(customStations.length){progress(91,'正在加载临时站中文字库…');await ensureCustomFont(customStations.map(s=>s.highlight?700:400));}
  const drawFit=(text,x,y,max,size,bold=false,color='#111',align='center',family=EXPORT_FONT,weight=700)=>{ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.font=`${weight} ${size}px "${family}"`;while(ctx.measureText(text).width>max&&size>12){size-=.5;ctx.font=`${weight} ${size}px "${family}"`;}ctx.fillText(text,x,y);};
  // Draw copied station glyphs over the new background to retain original spelling.
  const glyph=s=>{const b=s.box,pad=2,x=Math.max(0,b.x-pad),y=Math.max(0,b.y-pad),gw=Math.min(w-x,b.w+pad*2),gh=Math.min(input.height-y,b.h+pad*2),c=make(gw,gh),cx=c.getContext('2d');cx.drawImage(input,x,y,gw,gh,0,0,gw,gh);const pix=cx.getImageData(0,0,gw,gh);for(let i=0;i<pix.data.length;i+=4){const alpha=inkCoverage(pix.data[i],pix.data[i+1],pix.data[i+2],s.background);pix.data[i]=pix.data[i+1]=pix.data[i+2]=0;pix.data[i+3]=alpha;}cx.putImageData(pix,0,0);return c;};
  for(const b of layout){ctx.fillStyle=`rgb(${b.color.join(',')})`;ctx.fillRect(0,b.y,w,b.height);b.cells.forEach(({station:s,left,width,row})=>{const x=(left+width/2)*w,cy=b.y+margin/2+(row+.5)*rowHeight;if(s.highlight&&s.target>=0)drawFit(TARGETS[s.target],x,cy,width*w-30*ratio,focusFont,true,'#d00e16');else if(s.added||s.rule>=0&&s.target<0)drawFit(s.renderName||rules[s.rule].name,x,cy,width*w-30*ratio,s.highlight?focusFont:font,s.highlight,s.highlight?'#d00e16':'#111','center',CUSTOM_FONT,s.highlight?700:400);else{const c=glyph(s);const sc=Math.min(font/c.height,(width*w-30*ratio)/c.width);ctx.drawImage(c,x-c.width*sc/2,cy-c.height*sc/2,c.width*sc,c.height*sc);}});drawFit(`优惠${(b.discount/100).toFixed(2)}元，结算价${(b.price/100).toFixed(2)}`,b.inlinePrice?w*2/3:w/2,b.inlinePrice?b.y+margin/2+rowHeight/2:b.y+b.height-priceHeight/2,b.inlinePrice?w*2/3-30*ratio:w-30*ratio,35*ratio,true);}
- ctx.drawImage(input,0,tailStart,w,tailHeight,0,y,w,tailHeight);if(footer.mode!=='keep'){const footerY=y+tailHeight;ctx.fillStyle=`rgb(${footerRegion.color.join(',')})`;ctx.fillRect(0,footerY,w,footerHeight);footerLines.forEach((line,i)=>drawFit(line,w/2,footerY+(i+.5)*46*ratio+6*ratio,w-32*ratio,33*ratio,true,'#111','center',footer.text.trim()?CUSTOM_FONT:EXPORT_FONT));}
+ ctx.drawImage(input,0,tailStart,w,tailHeight,0,y,w,tailHeight);if(customFooter){const footerY=y+tailHeight;ctx.fillStyle=`rgb(${footerRegion.color.join(',')})`;ctx.fillRect(0,footerY,w,footerHeight);footerLines.forEach((line,i)=>drawFit(line,w/2,footerY+(i+.5)*46*ratio+6*ratio,w-32*ratio,33*ratio,true,'#111','center',footer.text.trim()?CUSTOM_FONT:EXPORT_FONT));}
 
- progress(100,'处理完成');return {canvas:out,footerWarning,updates:result.updates,merged:result.merged,originalBandCount:bands.length,stationCount:stations.length+result.added,added:result.added,joined:result.joined,missing:result.missing,highlighted:result.highlighted};
+ if(footer.mode!=='keep'&&!customFooter&&discountPatch){const b=discountPatch,py=y+b.y-tailStart,pad=2*ratio;const bg=input.getContext('2d').getImageData(3,Math.max(0,Math.floor(b.y+b.h/2)),1,1).data;ctx.fillStyle=`rgb(${bg[0]},${bg[1]},${bg[2]})`;ctx.fillRect(b.x-pad,py-pad,b.w+pad*2,b.h+pad*2);drawFit('4角5',b.x+b.w/2,py+b.h/2,b.w+pad,b.h*1.15,true);}
+ progress(100,'处理完成');return {canvas:out,removedBlankRows:compacted.removed,footerDiscountChanged:!!discountPatch,footerWarning,updates:result.updates,merged:result.merged,originalBandCount:bands.length,stationCount:stations.length+result.added,added:result.added,joined:result.joined,missing:result.missing,highlighted:result.highlighted};
 }
 
